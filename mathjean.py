@@ -10,19 +10,12 @@ class MathJeanSpider(BaseSpider):
     """
     """
     base_url = "http://genealogy.math.ndsu.nodak.edu"
-    start_urls = [
-        # pierce
-        "http://genealogy.math.ndsu.nodak.edu/id.php?id=50223"
-    ]
     download_delay = 1
     name = "mathjean"
 
     OUTPUT = "./crawl.log"
 
-    def urlOfId(self, href):
-        return "%s/%s" % (self.base_url, href)
-
-    def parse(self, response):
+    def parseNode(self, response):
         """
         2014-07-11:
             Find the name
@@ -36,5 +29,22 @@ class MathJeanSpider(BaseSpider):
             href = ahxs.select("./@href").extract()[0].strip()
             with open(self.OUTPUT, "a") as f:
                 print>>f, "\t".join([sName, aName])
-            yield Request(self.urlOfId(href), callback=self.parse)
-                
+            yield Request(self.urlOfId(href), callback=self.parseNode)
+
+    def start_requests(self):
+        self.reset_output()
+        print("################################################################################")
+        print("##########                     --- WELCOME ---                        ##########")
+        print("################################################################################")
+        print("Input the URL of the mathematician you want to start from:")
+        url = raw_input()
+        print("Thanks. Parsing the tree... Results will be saved incrementally to '%s'." % self.OUTPUT)
+        yield Request(url, callback=self.parseNode)
+
+    def reset_output(self):
+        with open(self.OUTPUT, "w") as f:
+            f.write("")
+        return
+
+    def urlOfId(self, href):
+        return "%s/%s" % (self.base_url, href)
