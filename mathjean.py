@@ -15,6 +15,9 @@ class MathJeanSpider(BaseSpider):
 
     OUTPUT = "./crawl.log"
 
+    def normalize(self, s):
+        return "".join((c for c in s if ord(c) < 128))
+
     def parseNode(self, response):
         """
         2014-07-11:
@@ -22,10 +25,10 @@ class MathJeanSpider(BaseSpider):
             Find the advisor(s)
         """
         hxs = HtmlXPathSelector(response)
-        sName = hxs.select("//h2/text()").extract()[0].strip()
+        sName = self.normalize(hxs.select("//h2/text()").extract()[0].strip())
         advisorHxs = hxs.select("//p[contains(text(), 'Advisor')]/a")
         for ahxs in advisorHxs:
-            aName = ahxs.select("./text()").extract()[0].strip()
+            aName = self.normalize(ahxs.select("./text()").extract()[0].strip())
             href = ahxs.select("./@href").extract()[0].strip()
             with open(self.OUTPUT, "a") as f:
                 print>>f, "\t".join([sName, aName])
