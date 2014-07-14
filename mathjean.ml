@@ -79,32 +79,6 @@ let write_output (s : string) : unit =
   (* Out_channel.write_lines cOUTPUT [s] *)
   print_endline s
 
-(* let get_search_url (name : string) : Uri.t = *)
-(*   let base  = Uri.of_string "http://api.duckduckgo.com/?format=json" in *)
-(*   let query = Format.sprintf "%s math genealogy" name in *)
-(*   Uri.add_query_param base ("q", [query]) *)
-
-(* (\* return the result url from math geneology if any, else nothing *\) *)
-(* let get_url_from_json (raw_json : string) : Uri.t option = *)
-(*   begin match Yojson.Safe.from_string raw_json with *)
-(*     | `Assoc kv_list -> *)
-(*        printf "result keys: %s\n" (String.concat ~sep:"; " (List.map kv_list ~f:fst)); *)
-(*        None *)
-(*     | _ -> None *)
-(*   end *)
-
-(* (\* take name of scientist, get uri *\) *)
-(* let url_of_name (name : string) : (Uri.t option) Deferred.t = *)
-(*   let search_url = get_search_url name in *)
-(*   Cohttp_async.Client.get search_url *)
-(*   >>= (fun (_, body) -> *)
-(*        Pipe.read body *)
-(*        >>= (function *)
-(*              | `Eof         -> return None *)
-(*              | `Ok raw_json -> return (get_url_from_json raw_json) *)
-(*            ) *)
-(*       ) *)
-
 (* TODO string list Deferred.t, print all the names (deduplicated) at the end *)
 (* visit uri, get name, get ancestor, call recursively on ancestor *)
 let rec ancestors_of_url (uri : Uri.t) : unit Deferred.t =
@@ -137,9 +111,5 @@ let () =
   )
   (fun raw_url () ->
    ancestors_of_url (Uri.of_string raw_url)
-   (* >>= (function *)
-   (*       | Some url -> ancestors_of_url url *)
-   (*       | None     -> return (printf "Error: could not find math genealogy page for '%s'. Try giving an exact url with '-url'." name) *)
-   (*     ) *)
   )
   |> Command.run
