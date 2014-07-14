@@ -1,8 +1,16 @@
 open Core.Std
 open Async.Std
 
+module AdvisorSet =
+  Set.Make(struct
+            type t        = string
+            let compare   = Pervasives.compare
+            let t_of_sexp = Sexp.to_string
+            let sexp_of_t = Sexp.of_string
+          end)
+
 let cBASE_URL = "http://genealogy.math.ndsu.nodak.edu"
-let cOUTPUT = "./crawl.log"
+let cDOWNLOAD_DELAY = 1.0
 let debug = false
 
 let rec contains_str_aux s t =
@@ -74,31 +82,41 @@ let rec advisors_of_raw_html (body : string list) : (string * Uri.t) list =
        else advisors_of_raw_html xs
   end
 
-let write_output (s : string) : unit =
-  (* let () = if debug then print_endline ("[write_output] " ^ s) in *)
-  (* Out_channel.write_lines cOUTPUT [s] *)
-  print_endline s
+(* let write_output (s : string) : unit = *)
+(*   (\* let () = if debug then print_endline ("[write_output] " ^ s) in *\) *)
+(*   (\* Out_channel.write_lines cOUTPUT [s] *\) *)
+(*   print_endline s *)
 
 (* TODO string list Deferred.t, print all the names (deduplicated) at the end *)
 (* visit uri, get name, get ancestor, call recursively on ancestor *)
-let rec ancestors_of_url (uri : Uri.t) : unit Deferred.t =
+let rec ancestors_of_url (uri : Uri.t) =
   (* returns response and pipe reader. response doesn't make sense, ignoring
      https://github.com/mirage/ocaml-cohttp/blob/master/async/cohttp_async.mli
    *)
-  Cohttp_async.Client.get uri
-  >>= (fun (_, body) ->
-       Pipe.read body
-       >>= (function
-             | `Eof         -> return ()
-             | `Ok raw_html ->
-                let lines    = String.split raw_html ~on:'\n' in
-                let stu_name = name_of_raw_html lines in
-                let advisors = advisors_of_raw_html lines in
-                (* for each advisor uri, send out a new request *)
-                Deferred.all_unit ( (* unit deferred list. Making this string instead of unit, we can hold the whole tree here. *)
-                    List.map advisors ~f:(fun (adv_name, url) ->
-                                          let () = write_output (Format.sprintf "%s\t%s" stu_name adv_name) in
-                                          ancestors_of_url url))
+  after (Time.Span.of_sec cDOWNLOAD_DELAY)
+  >>= (fun () ->
+       Cohttp_async.Client.get uri
+       >>= (fun (_, body) ->
+            Pipe.read body
+            >>= (function
+                  | `Eof         -> return AdvisorSet.empty
+                  | `Ok raw_html ->
+                     let lines    = String.split raw_html ~on:'\n' in
+                     (* let stu_name = name_of_raw_html lines in *)
+                     let advisors = advisors_of_raw_html lines in
+                     (* for each advisor uri, send out a new request *)
+                     Deferred.all (
+                         List.map advisors ~f:(fun (_, url) ->
+                                               ancestors_of_url url))
+                     >>= (fun advs_list ->
+                          let init =
+                            List.fold
+                              advisors
+                              ~init:AdvisorSet.empty
+                              ~f:(fun acc (name,_) -> AdvisorSet.add acc name)
+                          in
+                          return (List.fold advs_list ~init:init ~f:AdvisorSet.union))
+                )
            )
       )
 
@@ -111,5 +129,6 @@ let () =
   )
   (fun raw_url () ->
    ancestors_of_url (Uri.of_string raw_url)
+   >>| (fun advs -> printf "Ancestors:\n==========\n%s\n" (String.concat ~sep:"\n" (AdvisorSet.to_list advs)))
   )
   |> Command.run
