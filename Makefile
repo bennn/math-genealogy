@@ -1,2 +1,2 @@
 all:
-	corebuild -lib str -pkg cohttp.async mathjean.native
+	corebuild -lib str -pkg cohttp.async,yojson mathjean.native
