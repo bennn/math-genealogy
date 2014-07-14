@@ -1,0 +1,9 @@
+_build
+mathjean.native
+mathjean.pyc
+
+output/
+crawl.log
+
+*~
+\#*
