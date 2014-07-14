@@ -120,15 +120,19 @@ let rec ancestors_of_url (uri : Uri.t) =
            )
       )
 
+(* construct a math genealogy url from a math genealogy id *)
+let uri_of_id (id : int) : Uri.t =
+  Uri.of_string (Format.sprintf "%s/id.php?id=%d" cBASE_URL id)
+
 let () =
   Command.async_basic
-  ~summary:"Print all ancestors of a mathematician, starting from the given URL."
+  ~summary:"Print all ancestors of a mathematician, starting from the given ID."
   Command.Spec.(
     empty
-    +> anon ("url" %: string)
+    +> anon ("id" %: int)
   )
-  (fun raw_url () ->
-   ancestors_of_url (Uri.of_string raw_url)
+  (fun id () ->
+   ancestors_of_url (uri_of_id id)
    >>| (fun advs -> printf "Ancestors:\n==========\n%s\n" (String.concat ~sep:"\n" (AdvisorSet.to_list advs)))
   )
   |> Command.run
