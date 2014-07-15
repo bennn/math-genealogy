@@ -1,6 +1,12 @@
 open Core.Std
 open Async.Std
 
+type options = {
+  delay    : float;
+  start_id : int;
+  verbose  : bool;
+}
+
 module AdvisorSet =
   Set.Make(struct
             type t        = string
@@ -10,8 +16,6 @@ module AdvisorSet =
           end)
 
 let cBASE_URL = "http://genealogy.math.ndsu.nodak.edu"
-let cDOWNLOAD_DELAY = 1.0
-let debug = false
 
 let rec contains_str_aux s t =
   begin match String.index s t.[0] with
@@ -61,8 +65,8 @@ let advisors_aux (s : string) (i : int) : string * string =
   href, name
 
 (* get href and text out of html *)
-let advisors_of_str (s : string) : (string * Uri.t) list =
-  let () = if debug then print_endline ("[advisors_of_str] " ^ s) in
+let advisors_of_str (opts : options) (s : string) : (string * Uri.t) list =
+  let () = if opts.verbose then printf "[debug] parsing advisors from string: '%s'\n" s in
   let regex = Str.regexp "<a href=\"\\(.*\\)\">\\(.*\\)</a>" in
   let match1 = Str.search_forward regex s 0 in
   let href1, name1 = advisors_aux s match1 in
@@ -73,28 +77,24 @@ let advisors_of_str (s : string) : (string * Uri.t) list =
   else [(name1, uri_of_href href1); (name2, uri_of_href href2)]
 
 (* get a list of advisors from html *)
-let rec advisors_of_raw_html (body : string list) : (string * Uri.t) list =
+let rec advisors_of_raw_html (opts : options) (body : string list) : (string * Uri.t) list =
   begin match body with
     | []    -> []
     | x::xs ->
        if contains_str x "Advisor"
-       then (try (advisors_of_str x) with _ -> [])
-       else advisors_of_raw_html xs
+       then (try (advisors_of_str opts x) with _ -> [])
+       else advisors_of_raw_html opts xs
   end
-
-(* let write_output (s : string) : unit = *)
-(*   (\* let () = if debug then print_endline ("[write_output] " ^ s) in *\) *)
-(*   (\* Out_channel.write_lines cOUTPUT [s] *\) *)
-(*   print_endline s *)
 
 (* TODO string list Deferred.t, print all the names (deduplicated) at the end *)
 (* visit uri, get name, get ancestor, call recursively on ancestor *)
-let rec ancestors_of_url (uri : Uri.t) =
+let rec ancestors_of_url (opts : options) (uri : Uri.t) =
   (* returns response and pipe reader. response doesn't make sense, ignoring
      https://github.com/mirage/ocaml-cohttp/blob/master/async/cohttp_async.mli
    *)
-  after (Time.Span.of_sec cDOWNLOAD_DELAY)
+  after (Time.Span.of_sec opts.delay)
   >>= (fun () ->
+       let () = if opts.verbose then printf "[debug] visiting '%s'\n" (Uri.to_string uri) in
        Cohttp_async.Client.get uri
        >>= (fun (_, body) ->
             Pipe.read body
@@ -103,11 +103,10 @@ let rec ancestors_of_url (uri : Uri.t) =
                   | `Ok raw_html ->
                      let lines    = String.split raw_html ~on:'\n' in
                      (* let stu_name = name_of_raw_html lines in *)
-                     let advisors = advisors_of_raw_html lines in
+                     let advisors = advisors_of_raw_html opts lines in
                      (* for each advisor uri, send out a new request *)
                      Deferred.all (
-                         List.map advisors ~f:(fun (_, url) ->
-                                               ancestors_of_url url))
+                         List.map advisors ~f:(fun (_, url) -> ancestors_of_url opts url))
                      >>= (fun advs_list ->
                           let init =
                             List.fold
@@ -124,15 +123,31 @@ let rec ancestors_of_url (uri : Uri.t) =
 let uri_of_id (id : int) : Uri.t =
   Uri.of_string (Format.sprintf "%s/id.php?id=%d" cBASE_URL id)
 
+let close opts advs =
+  let () = if opts.verbose then print_endline "" in
+  let heading = Format.sprintf "Ancestors of %d:" opts.start_id in
+  printf
+    "%s\n%s\n%s\n"
+    heading
+    (String.make (String.length heading) '=')
+    (String.concat ~sep:"\n" (AdvisorSet.to_list advs))
+
 let () =
   Command.async_basic
   ~summary:"Print all ancestors of a mathematician, starting from the given ID."
   Command.Spec.(
     empty
+    +> flag ~aliases:["-d"] "-delay" (optional float) ~doc:"FLOAT Pause FLOAT seconds between requests (default is 2.0)."
+    +> flag ~aliases:["-v"] "-verbose" no_arg ~doc:" Print debugging output."
     +> anon ("id" %: int)
   )
-  (fun id () ->
-   ancestors_of_url (uri_of_id id)
-   >>| (fun advs -> printf "Ancestors:\n==========\n%s\n" (String.concat ~sep:"\n" (AdvisorSet.to_list advs)))
+  (fun d v id () ->
+   let opts = {
+     delay    = Option.value d ~default:2.0;
+     start_id = id;
+     verbose  = v;
+   } in
+   ancestors_of_url opts (uri_of_id id)
+   >>| close opts
   )
   |> Command.run
