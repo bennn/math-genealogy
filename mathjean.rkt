@@ -1,7 +1,15 @@
 #lang racket/base
 
-;; Given a URL or mathematician ID,
-;; Return the mathematician's ancestors as an unsorted set.
+;; Simple scraper for the Math Genealogy project
+;;  genealogy.math.ndsu.nodak.edu
+;; Finds all ancestors of a given mathematician
+
+(provide
+  ancestors
+  ;; (->* [url] [#:verbose? Boolean] (Setof String))
+  ;; Given a start URL, return that mathematician's ancestors as an unsorted set
+  ;; When `verbose?` is true, print logging information to `(current-output-port)`.
+)
 
 (require
   racket/match
@@ -17,12 +25,14 @@
 
 (define BASE_URL "http://genealogy.math.ndsu.nodak.edu")
 
+;; Show a debug message, the UI is like printf
 (define-syntax-rule (debug msg arg* ...)
   (displayln (string-append "[INFO] " (format msg arg* ...))))
 
 ;; =============================================================================
 
 ;; Convert an argument (of unknown type) to a URL
+;; (: string->start-url (-> Any url))
 (define (string->start-url arg)
   (cond
     [(string->number arg)
@@ -32,24 +42,30 @@
     [else
      (name->math-url arg)]))
 
+;; Convert a mathematician's id to his/her url
+;; (: id->math-url (-> Natural url))
 (define (id->math-url n)
   (string->url (format "~a/id.php?id=~a" BASE_URL n)))
 
 ;; Convert a mathematician's name to a math genealogy URL
+;; Should be implemented using quickSearch.php
+;; (: name->math-url (-> String url))
 (define (name->math-url str)
   (error 'name->math-url "Not implemented"))
 
 ;; Collect all ancestors of the mathematician at `url`.
+;; (: ancestors (->* [url] [#:verbose Boolean] (Setof String)))
 (define (ancestors url #:verbose? [verbose? #f])
   (let loop ([unvisited (url->advisor-id* url)] ;; (Listof Natural)
-             [visited   (set)] ;; (Setof Natural)
-             [acc       (set)]) ;; (Setof String)
+             [visited   (set)]                  ;; (Setof Natural)
+             [acc       (set)])                 ;; (Setof String)
     (match unvisited
-     ['() acc]
-     [(cons id id*)
+     ['()           ;; Nothing else to visit
+      acc]
+     [(cons id id*) ;; Do nothing if we've seen this part of the tree
       #:when (set-member? visited id)
       (loop id* visited acc)]
-     [(cons id id*)
+     [(cons id id*) ;; Collect the advisors for `id` & loop
       (when verbose? (debug "Visiting '~a'" id))
       (define a-id* (url->advisor-id* (id->math-url id)))
       (loop (append a-id* id*)
@@ -58,21 +74,30 @@
 
 ;; Convert a list of id's to names, add to the set `acc`.
 ;; (Very special-purpose)
+;; (: add-name* (-> (Setof String) (Listof Natural) (Setof String)))
 (define (add-name* acc id*)
   (for/fold ([acc acc]) ([id (in-list id*)])
     (set-add acc (url->name (id->math-url id)))))
 
+;; Convert the html at `url` to sxml format
+;; (: url->sxml (-> url sxml))
 (define (url->sxml url)
   (call/input-url url get-impure-port html->xexp))
 
+;; Get the ids of all advisors at `url`
+;; (: url->advisor-id* (-> url (Listof Natural)))
 (define (url->advisor-id* url)
   (sxml->advisor-id* (url->sxml url)))
 
+;; Get the ids of all advisors within the sxml
+;; (: sxml->advisor-id* (-> sxml (Listof Natural)))
 (define (sxml->advisor-id* sx)
-  ;; Find <p> with text "Advisor", scrape all a@href
-  (define sx* ((sxpath `(// p ,(contains? '(*text*) "Advisor") a @ href *text*)) sx))
+  ;; Find <p> with text "Advisor", scrape all a@href for new ids
+  (define sx* ((sxpath `(// p ,(contains-text? "Advisor") a @ href *text*)) sx))
   (map href->id sx*))
 
+;; Parse a math genealogy id from a special href
+;; (: href->id (-> String Natural))
 (define (href->id str)
   (cond
    [(regexp-match "^id\\.php\\?id=([0-9]+)$" str)
@@ -80,13 +105,17 @@
    [else #f]))
 
 ;; Scrape a mathematician's name from a URL
+;; (: url->name (-> url String))
 (define (url->name url)
   (sxml->name (url->sxml url)))
 
+;; Scrape a mathematician's name from an sxml document
+;; (: sxml->name (-> sxml String))
 (define (sxml->name sx)
   (string-trim (last (string-split ((car-sxpath '(// title *text*)) sx) " - "))))
 
 ;; Pretty-print a set of ancestors
+;; (: display-ancestors (-> String (Setof String) Void))
 (define (display-ancestors name a-set)
   (define title (format "Ancestors of ~a:" name))
   (displayln title)
@@ -96,23 +125,29 @@
 
 ;; Write a set of ancestors as data
 ;; Should ideally keep the tree structure
+;; (: write-ancestors (-> String (Setof String) String))
 (define (write-ancestors name a-set)
   (format "~a" (cons name a-set)))
 
-(define ((contains? sel part) elem* ???)
+;; sxml filter
+;; Return all elements with text matching `part`
+;; (2015-08-03: I have no idea what the second argument is)
+;; (: contains-text? (-> String (-> (Listof sxml) ??? (Listof sxml))))
+(define ((contains-text? part) elem* ???)
   ;; Order of arguments is for my selfish purposes
+  ;; (: contains-part? (-> sxml Boolean))
   (define (contains-part? elem)
-    (regexp-match? part ((car-sxpath sel) elem)))
+    (regexp-match? part ((car-sxpath '(*text*)) elem)))
   (filter contains-part? elem*))
 
 ;; =============================================================================
 
 (module+ main
   (require racket/cmdline)
-  ;; --
+  ;; -- parameters
   (define output-file (make-parameter #f))
   (define verbose? (make-parameter #f))
-  ;; --
+  ;; -- main
   (command-line
     #:program "Math Genealogy scraper"
     #:once-any
@@ -121,9 +156,11 @@
     #:args (ID-or-URL)
     (begin
       (define url (string->start-url ID-or-URL))
+      (when (verbose?) (debug "Got start URL '~a'" (url->string url)))
       (define name (sxml->name (url->sxml url)))
+      (when (verbose?) (debug "Searching for ancestors of '~a'" name))
       (define a-set (ancestors url #:verbose? (verbose?)))
-      (when verbose? (debug "Finished scraping ~a ancestors." (set-count a-set)))
+      (when (verbose?) (debug "Finished scraping ~a ancestors." (set-count a-set)))
       (if (output-file)
         (with-output-to-file (output-file)
           (lambda () (displayln (write-ancestors name a-set))))
