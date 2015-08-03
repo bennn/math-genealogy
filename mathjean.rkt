@@ -9,7 +9,7 @@
   (only-in net/url call/input-url string->url get-impure-port url->string)
   (only-in racket/list last empty?)
   (only-in racket/set in-set set-add set-count set set-member?)
-  (only-in racket/string string-split)
+  (only-in racket/string string-split string-trim)
   (only-in sxml car-sxpath sxpath)
 )
 
@@ -20,7 +20,9 @@
 (define-syntax-rule (debug msg arg* ...)
   (displayln (string-append "[INFO] " (format msg arg* ...))))
 
-;; Convert an argument (of unknown type) to 
+;; =============================================================================
+
+;; Convert an argument (of unknown type) to a URL
 (define (string->start-url arg)
   (cond
     [(string->number arg)
@@ -82,7 +84,7 @@
   (sxml->name (url->sxml url)))
 
 (define (sxml->name sx)
-  (last (string-split ((car-sxpath '(// title *text*)) sx) " - ")))
+  (string-trim (last (string-split ((car-sxpath '(// title *text*)) sx) " - "))))
 
 ;; Pretty-print a set of ancestors
 (define (display-ancestors name a-set)
@@ -136,6 +138,7 @@
   (define EULER-ID 38586)
   (define BERNOULLI-ID 53410)
   (define EGLINGER-ID 129628)
+  (define PACIOLI-ID 126888)
   (define ZASIUS-ID 126659)
 
   ;; -- href->id
@@ -152,6 +155,8 @@
 
   ;; -- url->name
   (check-equal? (url->name (id->math-url EULER-ID)) "Leonhard Euler")
+  ;; Luca Pacioli has an extra whitespace character in his <title/>
+  (check-equal? (url->name (id->math-url PACIOLI-ID)) "Luca Pacioli")
 
   ;; -- url->advisor-url*
   (check-equal? (url->advisor-id* (id->math-url EULER-ID)) (list BERNOULLI-ID))
