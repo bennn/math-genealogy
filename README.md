@@ -1,7 +1,14 @@
 # mathjean
 
 Simple scrapers for the Math Genealogy project.
-There's an ocaml version and a python version.
+There's an ocaml version and a python version and a Racket version.
+
+## How to use `mathjean.rkt`
+
+- Install Racket v6.2 or so (tested on `6.2.900.5`)
+- Install the `sxml` library
+- Run `racket mathjean.rkt ID` and wait for the results.
+  (The argument `ID` is a number -- the identifier for the mathematician whose ancestors you're searching for. You can also just use a URL.)
 
 ## How to use `mathjean.ml`
 
@@ -36,5 +43,3 @@ have much prettier alternatives.
 
 This is beerware.
 Have fun.
-
-<!-- Ben Greenman, 2014-07-13 -->
